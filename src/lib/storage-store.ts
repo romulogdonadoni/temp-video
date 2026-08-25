@@ -21,6 +21,14 @@ if (!globalForBlobs.__localVideoBlobs) {
 
 const localBlobs = globalForBlobs.__localVideoBlobs;
 
+export function saveLocalBlobBuffer(id: string, buffer: Buffer, mimeType: string) {
+  localBlobs.set(id, { buffer, mimeType });
+}
+
+export function getLocalBlobBuffer(id: string) {
+  return localBlobs.get(id);
+}
+
 export async function createUploadSession(params: {
   id: string;
   title: string;

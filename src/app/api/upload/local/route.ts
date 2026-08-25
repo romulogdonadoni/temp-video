@@ -1,16 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { saveLocalVideoBlob } from "@/lib/storage-store";
-
-// Map em memória no servidor para guardar os buffers de arquivo no fallback local
-const globalForBlobs = global as unknown as {
-  __localVideoBlobs?: Map<string, { buffer: Buffer; mimeType: string }>;
-};
-
-if (!globalForBlobs.__localVideoBlobs) {
-  globalForBlobs.__localVideoBlobs = new Map();
-}
-
-export const localBlobs = globalForBlobs.__localVideoBlobs;
+import { saveLocalVideoBlob, saveLocalBlobBuffer } from "@/lib/storage-store";
 
 export async function PUT(req: NextRequest) {
   try {
@@ -25,7 +14,7 @@ export async function PUT(req: NextRequest) {
     const arrayBuffer = await req.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    localBlobs.set(id, { buffer, mimeType: contentType });
+    saveLocalBlobBuffer(id, buffer, contentType);
 
     // Atualiza o store com a URL de streaming local
     await saveLocalVideoBlob(id, `/api/video/${id}/stream`);

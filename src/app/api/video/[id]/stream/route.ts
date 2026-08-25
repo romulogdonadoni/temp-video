@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { localBlobs } from "@/app/api/upload/local/route";
+import { getLocalBlobBuffer } from "@/lib/storage-store";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   const { id } = params;
-  const videoData = localBlobs.get(id);
+  const videoData = getLocalBlobBuffer(id);
 
   if (!videoData) {
     return new NextResponse("Vídeo não encontrado ou expirado no servidor local", { status: 404 });
@@ -17,7 +17,7 @@ export async function GET(
   responseHeaders.set("Content-Length", videoData.buffer.length.toString());
   responseHeaders.set("Accept-Ranges", "bytes");
 
-  return new NextResponse(videoData.buffer, {
+  return new NextResponse(new Uint8Array(videoData.buffer), {
     status: 200,
     headers: responseHeaders,
   });
