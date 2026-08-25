@@ -27,13 +27,13 @@ export default function Header() {
             <Shield className="h-3 w-3 text-emerald-400" />
             100% Privado
           </Badge>
+          <Badge variant="secondary" className="gap-1 font-medium text-[11px]">
+            <Zap className="h-3 w-3 text-amber-400" />
+            Cloudflare R2
+          </Badge>
           <Badge variant="secondary" className="gap-1 font-medium text-[11px] hidden sm:inline-flex">
             <Clock className="h-3 w-3 text-indigo-400" />
             Expiração Automática
-          </Badge>
-          <Badge variant="secondary" className="gap-1 font-medium text-[11px] hidden md:inline-flex">
-            <Zap className="h-3 w-3 text-amber-400" />
-            Sem Cadastro
           </Badge>
         </div>
       </div>

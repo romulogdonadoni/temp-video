@@ -4,31 +4,29 @@ import {
   generateR2ViewUrl,
 } from "./r2";
 import {
-  isDynamoDBConfigured,
-  saveVideoMetadataToDynamo,
-  getVideoMetadataFromDynamo,
-  incrementVideoViewsInDynamo,
-  deleteVideoFromDynamo,
+  saveVideoMetadata,
+  getVideoMetadata,
+  incrementVideoViews,
   VideoMetadata,
-} from "./dynamodb";
+} from "./metadata-store";
 
-// Store local em memória/global para fallback em desenvolvimento
-const globalForLocalStorage = global as unknown as {
-  __localVideoStore?: Map<string, VideoMetadata & { blobData?: string }>;
+// Store local para arquivos em fallback (quando R2 não estiver configurado)
+const globalForBlobs = global as unknown as {
+  __localVideoBlobs?: Map<string, { buffer: Buffer; mimeType: string }>;
 };
 
-if (!globalForLocalStorage.__localVideoStore) {
-  globalForLocalStorage.__localVideoStore = new Map();
+if (!globalForBlobs.__localVideoBlobs) {
+  globalForBlobs.__localVideoBlobs = new Map();
 }
 
-const localStore = globalForLocalStorage.__localVideoStore;
+const localBlobs = globalForBlobs.__localVideoBlobs;
 
 export async function createUploadSession(params: {
   id: string;
   title: string;
   size: number;
   mimeType: string;
-  expirationHours: number; // ex: 1, 12, 24, 168 (7d) ou -1 (1 view)
+  expirationHours: number;
   password?: string;
   burnAfterReading?: boolean;
   allowDownload?: boolean;
@@ -52,14 +50,13 @@ export async function createUploadSession(params: {
     allowDownload: params.allowDownload !== false,
   };
 
-  const useRealR2 = isR2Configured() && process.env.USE_LOCAL_FALLBACK !== "true";
-  const useRealDynamo = isDynamoDBConfigured() && process.env.USE_LOCAL_FALLBACK !== "true";
+  const useR2 = isR2Configured() && process.env.USE_LOCAL_FALLBACK !== "true";
 
-  if (useRealR2 && useRealDynamo) {
-    // 1. Gera URL assinado do R2
+  if (useR2) {
+    // 1. Gera URL assinado no Cloudflare R2
     const { uploadUrl } = await generateR2UploadUrl(fileKey, params.mimeType);
-    // 2. Grava metadados no DynamoDB com TTL
-    await saveVideoMetadataToDynamo(metadata);
+    // 2. Salva metadados em memória com TTL
+    await saveVideoMetadata(metadata);
 
     return {
       id: params.id,
@@ -67,9 +64,8 @@ export async function createUploadSession(params: {
       isLocalFallback: false,
     };
   } else {
-    // Salva no store local de fallback
-    localStore.set(params.id, metadata);
-
+    // Fallback local
+    await saveVideoMetadata(metadata);
     return {
       id: params.id,
       uploadUrl: `/api/upload/local?id=${params.id}`,
@@ -79,33 +75,16 @@ export async function createUploadSession(params: {
 }
 
 export async function getVideoSession(id: string): Promise<VideoMetadata | null> {
-  const useRealDynamo = isDynamoDBConfigured() && process.env.USE_LOCAL_FALLBACK !== "true";
-  const useRealR2 = isR2Configured() && process.env.USE_LOCAL_FALLBACK !== "true";
-
-  let metadata: VideoMetadata | null = null;
-
-  if (useRealDynamo) {
-    metadata = await getVideoMetadataFromDynamo(id);
-  } else {
-    metadata = localStore.get(id) || null;
-  }
-
+  const metadata = await getVideoMetadata(id);
   if (!metadata) return null;
 
-  // Verifica expiração
-  const nowSec = Math.floor(Date.now() / 1000);
-  if (metadata.expiresAt <= nowSec) {
-    if (!useRealDynamo) localStore.delete(id);
-    return null;
-  }
+  const useR2 = isR2Configured() && process.env.USE_LOCAL_FALLBACK !== "true";
 
-  // Gera URL de visualização
   let videoUrl = "";
-  if (useRealR2) {
+  if (useR2) {
     videoUrl = await generateR2ViewUrl(metadata.fileKey);
   } else {
-    const item = localStore.get(id);
-    videoUrl = item?.videoUrl || `/api/video/${id}/stream`;
+    videoUrl = metadata.videoUrl || `/api/video/${id}/stream`;
   }
 
   return {
@@ -115,23 +94,13 @@ export async function getVideoSession(id: string): Promise<VideoMetadata | null>
 }
 
 export async function recordVideoView(id: string): Promise<number> {
-  const useRealDynamo = isDynamoDBConfigured() && process.env.USE_LOCAL_FALLBACK !== "true";
-
-  if (useRealDynamo) {
-    return await incrementVideoViewsInDynamo(id);
-  } else {
-    const item = localStore.get(id);
-    if (!item) return 0;
-    item.viewsCount = (item.viewsCount || 0) + 1;
-    localStore.set(id, item);
-    return item.viewsCount;
-  }
+  return await incrementVideoViews(id);
 }
 
 export async function saveLocalVideoBlob(id: string, videoUrl: string) {
-  const item = localStore.get(id);
-  if (item) {
-    item.videoUrl = videoUrl;
-    localStore.set(id, item);
+  const metadata = await getVideoMetadata(id);
+  if (metadata) {
+    metadata.videoUrl = videoUrl;
+    await saveVideoMetadata(metadata);
   }
 }
