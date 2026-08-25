@@ -2,6 +2,7 @@ import {
   isR2Configured,
   generateR2UploadUrl,
   generateR2ViewUrl,
+  findR2VideoObject,
 } from "./r2";
 import {
   saveVideoMetadata,
@@ -10,7 +11,6 @@ import {
   VideoMetadata,
 } from "./metadata-store";
 
-// Store local para arquivos em fallback (quando R2 não estiver configurado)
 const globalForBlobs = global as unknown as {
   __localVideoBlobs?: Map<string, { buffer: Buffer; mimeType: string }>;
 };
@@ -61,9 +61,7 @@ export async function createUploadSession(params: {
   const useR2 = isR2Configured() && process.env.USE_LOCAL_FALLBACK !== "true";
 
   if (useR2) {
-    // 1. Gera URL assinado no Cloudflare R2
     const { uploadUrl } = await generateR2UploadUrl(fileKey, params.mimeType);
-    // 2. Salva metadados em memória com TTL
     await saveVideoMetadata(metadata);
 
     return {
@@ -72,7 +70,6 @@ export async function createUploadSession(params: {
       isLocalFallback: false,
     };
   } else {
-    // Fallback local
     await saveVideoMetadata(metadata);
     return {
       id: params.id,
@@ -83,10 +80,37 @@ export async function createUploadSession(params: {
 }
 
 export async function getVideoSession(id: string): Promise<VideoMetadata | null> {
-  const metadata = await getVideoMetadata(id);
-  if (!metadata) return null;
-
+  let metadata = await getVideoMetadata(id);
   const useR2 = isR2Configured() && process.env.USE_LOCAL_FALLBACK !== "true";
+
+  // Se o registro não estiver na memória (ex: Serverless da Vercel reciclou o container)
+  if (!metadata && useR2) {
+    const r2Item = await findR2VideoObject(id);
+    if (r2Item) {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const createdSec = r2Item.lastModified ? Math.floor(r2Item.lastModified.getTime() / 1000) : nowSec;
+      // Define expiração padrão de 24h a partir da criação
+      const expiresAt = createdSec + 24 * 3600;
+
+      if (expiresAt > nowSec) {
+        metadata = {
+          id,
+          fileKey: r2Item.fileKey,
+          title: r2Item.title,
+          size: r2Item.size,
+          mimeType: "video/mp4",
+          createdAt: createdSec,
+          expiresAt,
+          viewsCount: 1,
+          burnAfterReading: false,
+          allowDownload: true,
+        };
+        await saveVideoMetadata(metadata);
+      }
+    }
+  }
+
+  if (!metadata) return null;
 
   let videoUrl = "";
   if (useR2) {

@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const accountId = process.env.R2_ACCOUNT_ID || "";
@@ -49,7 +49,7 @@ export async function generateR2ViewUrl(
     throw new Error("Cloudflare R2 não está configurado nas variáveis de ambiente.");
   }
 
-  // Se houver um domínio público configurado (ex: R2 dev domain ou custom CDN domain)
+  // Se houver um domínio público configurado
   const publicDomain = process.env.R2_PUBLIC_DOMAIN;
   if (publicDomain && publicDomain.startsWith("http")) {
     return `${publicDomain.replace(/\/$/, "")}/${fileKey}`;
@@ -62,4 +62,43 @@ export async function generateR2ViewUrl(
   });
 
   return await getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+}
+
+export async function findR2VideoObject(id: string): Promise<{
+  fileKey: string;
+  size: number;
+  lastModified?: Date;
+  title: string;
+} | null> {
+  if (!isR2Configured()) return null;
+
+  try {
+    const client = getR2Client();
+    const command = new ListObjectsV2Command({
+      Bucket: bucketName,
+      Prefix: `videos/${id}/`,
+    });
+
+    const response = await client.send(command);
+    if (!response.Contents || response.Contents.length === 0) {
+      return null;
+    }
+
+    const item = response.Contents[0];
+    if (!item.Key) return null;
+
+    const parts = item.Key.split("/");
+    const filename = parts[parts.length - 1] || "video.mp4";
+    const title = filename.replace(/_/g, " ");
+
+    return {
+      fileKey: item.Key,
+      size: item.Size || 0,
+      lastModified: item.LastModified,
+      title,
+    };
+  } catch (err) {
+    console.error("Erro ao buscar objeto no R2:", err);
+    return null;
+  }
 }
