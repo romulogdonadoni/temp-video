@@ -23,7 +23,11 @@ export default function ShareModal({ isOpen, onClose, videoId, videoTitle }: Sha
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedEmbed, setCopiedEmbed] = useState(false);
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== "undefined" ? window.location.origin : "");
+  const envUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const baseUrl = (envUrl && envUrl.trim())
+    ? envUrl
+    : (typeof window !== "undefined" ? window.location.origin : "");
+    
   const shareUrl = `${baseUrl.replace(/\/$/, "")}/watch/${videoId}`;
   const embedCode = `<iframe src="${shareUrl}" width="100%" height="450" frameborder="0" allowfullscreen></iframe>`;
 
