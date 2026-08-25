@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import ExpirationBadge from "@/components/ExpirationBadge";
 import VideoPlayer from "@/components/VideoPlayer";
 import ExpiredScreen from "@/components/ExpiredScreen";
 import PasswordModal from "@/components/PasswordModal";
 import ShareModal from "@/components/ShareModal";
-import { Loader2, ArrowLeft, ShieldAlert } from "lucide-react";
+import { Loader2, ArrowLeft, ShieldAlert, Trash2, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
+import { Card, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 interface VideoData {
   id: string;
@@ -27,12 +29,15 @@ interface VideoData {
 
 export default function WatchPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const id = params?.id as string;
+  const deleteKey = searchParams?.get("delete");
 
   const [videoData, setVideoData] = useState<VideoData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
   const [isExpired, setIsExpired] = useState(false);
+  const [isDeletedByDev, setIsDeletedByDev] = useState(false);
   const [passwordToken, setPasswordToken] = useState<string | null>(null);
   const [isShareOpen, setIsShareOpen] = useState(false);
 
@@ -42,14 +47,26 @@ export default function WatchPage() {
       const headers: Record<string, string> = {};
       if (token) headers["x-video-password"] = token;
 
-      const res = await fetch(`/api/video/${id}`, { headers });
+      let apiUrl = `/api/video/${id}`;
+      if (deleteKey) {
+        apiUrl += `?delete=${encodeURIComponent(deleteKey)}`;
+      }
+
+      const res = await fetch(apiUrl, { headers });
+      const data = await res.json();
+
+      if (data.deleted) {
+        setIsDeletedByDev(true);
+        setVideoData(null);
+        return;
+      }
+
       if (res.status === 404) {
         setIsExpired(true);
         setVideoData(null);
         return;
       }
 
-      const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error || "Erro ao carregar o vídeo.");
       }
@@ -66,7 +83,7 @@ export default function WatchPage() {
     if (id) {
       fetchVideo();
     }
-  }, [id]);
+  }, [id, deleteKey]);
 
   const handlePasswordSuccess = (token: string) => {
     setPasswordToken(token);
@@ -76,8 +93,34 @@ export default function WatchPage() {
   if (isLoading) {
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center space-y-4">
-        <Loader2 className="h-10 w-10 animate-spin text-indigo-500" />
-        <p className="text-sm font-medium text-zinc-400">Carregando player de vídeo...</p>
+        <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+        <p className="text-xs font-medium text-zinc-400 font-mono">Carregando vídeo...</p>
+      </div>
+    );
+  }
+
+  if (isDeletedByDev) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center p-4">
+        <Card className="w-full max-w-md text-center border-zinc-800 bg-zinc-950">
+          <CardHeader className="pb-2">
+            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-red-950 text-red-400 border border-red-800/50">
+              <Trash2 className="h-5 w-5" />
+            </div>
+            <CardTitle className="text-base font-bold text-zinc-100">Vídeo Deletado (Dev Key)</CardTitle>
+            <CardDescription className="text-xs text-zinc-400 mt-1">
+              O vídeo foi removido permanentemente do Cloudflare R2 e da memória.
+            </CardDescription>
+          </CardHeader>
+          <CardFooter className="flex justify-center pt-4">
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/">
+                <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
+                Voltar para o Início
+              </Link>
+            </Button>
+          </CardFooter>
+        </Card>
       </div>
     );
   }
@@ -99,7 +142,7 @@ export default function WatchPage() {
   return (
     <div className="min-h-[calc(100vh-80px)] py-8 px-4 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-5xl space-y-6">
-        {/* Top Action Bar */}
+        {/* Barra Superior */}
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
           <Link
             href="/"
@@ -111,9 +154,9 @@ export default function WatchPage() {
 
           <div className="flex items-center gap-3">
             {videoData.burnAfterReading && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-pink-500/20 bg-pink-500/10 px-3 py-1 text-xs font-semibold text-pink-400">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-pink-800/50 bg-pink-950/40 px-3 py-1 text-xs font-semibold text-pink-300">
                 <ShieldAlert className="h-3.5 w-3.5" />
-                Visualização Única (Burn)
+                Visualização Única
               </span>
             )}
             <ExpirationBadge
@@ -123,7 +166,7 @@ export default function WatchPage() {
           </div>
         </div>
 
-        {/* Player Section */}
+        {/* Player de Vídeo */}
         {videoData.videoUrl ? (
           <VideoPlayer
             src={videoData.videoUrl}
@@ -134,8 +177,8 @@ export default function WatchPage() {
             onShareClick={() => setIsShareOpen(true)}
           />
         ) : (
-          <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-6 text-center text-sm text-red-400">
-            Falha ao carregar a URL do arquivo de vídeo.
+          <div className="rounded-md border border-red-900/50 bg-red-950/30 p-6 text-center text-xs text-red-300">
+            Falha ao obter URL de reprodução do vídeo.
           </div>
         )}
       </div>

@@ -3,11 +3,13 @@ import {
   generateR2UploadUrl,
   generateR2ViewUrl,
   findR2VideoObject,
+  deleteR2VideoObjects,
 } from "./r2";
 import {
   saveVideoMetadata,
   getVideoMetadata,
   incrementVideoViews,
+  deleteVideoMetadata,
   VideoMetadata,
 } from "./metadata-store";
 
@@ -83,13 +85,11 @@ export async function getVideoSession(id: string): Promise<VideoMetadata | null>
   let metadata = await getVideoMetadata(id);
   const useR2 = isR2Configured() && process.env.USE_LOCAL_FALLBACK !== "true";
 
-  // Se o registro não estiver na memória (ex: Serverless da Vercel reciclou o container)
   if (!metadata && useR2) {
     const r2Item = await findR2VideoObject(id);
     if (r2Item) {
       const nowSec = Math.floor(Date.now() / 1000);
       const createdSec = r2Item.lastModified ? Math.floor(r2Item.lastModified.getTime() / 1000) : nowSec;
-      // Define expiração padrão de 24h a partir da criação
       const expiresAt = createdSec + 24 * 3600;
 
       if (expiresAt > nowSec) {
@@ -123,6 +123,16 @@ export async function getVideoSession(id: string): Promise<VideoMetadata | null>
     ...metadata,
     videoUrl,
   };
+}
+
+export async function deleteVideoSession(id: string): Promise<boolean> {
+  const useR2 = isR2Configured() && process.env.USE_LOCAL_FALLBACK !== "true";
+  if (useR2) {
+    await deleteR2VideoObjects(id);
+  }
+  await deleteVideoMetadata(id);
+  localBlobs.delete(id);
+  return true;
 }
 
 export async function recordVideoView(id: string): Promise<number> {

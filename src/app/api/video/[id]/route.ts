@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getVideoSession, recordVideoView } from "@/lib/storage-store";
+import { getVideoSession, recordVideoView, deleteVideoSession } from "@/lib/storage-store";
 
 export async function GET(
   req: NextRequest,
@@ -7,6 +7,20 @@ export async function GET(
 ) {
   try {
     const { id } = params;
+    const { searchParams } = new URL(req.url);
+    const deleteKeyParam = searchParams.get("delete");
+    const configuredDevKey = process.env.DEV_DELETE_KEY || "devkey";
+
+    // Se o parâmetro ?delete=CHAVE for fornecido e corresponder à chave DEV_DELETE_KEY
+    if (deleteKeyParam && configuredDevKey && deleteKeyParam === configuredDevKey) {
+      await deleteVideoSession(id);
+      return NextResponse.json({
+        success: true,
+        deleted: true,
+        message: "Vídeo deletado com sucesso do Cloudflare R2 via Dev Key.",
+      });
+    }
+
     const metadata = await getVideoSession(id);
 
     if (!metadata) {
@@ -16,7 +30,6 @@ export async function GET(
       );
     }
 
-    // Se o vídeo for protegido por senha e nenhuma senha correta foi enviada nos parâmetros ou cabeçalhos
     const authHeader = req.headers.get("x-video-password");
     const isProtected = Boolean(metadata.passwordHash);
 
@@ -30,7 +43,6 @@ export async function GET(
       });
     }
 
-    // Incrementa contagem de views se não estiver apenas checando senha
     const newViews = await recordVideoView(id);
 
     return NextResponse.json({
@@ -52,5 +64,33 @@ export async function GET(
       { error: "Erro interno ao buscar vídeo." },
       { status: 500 }
     );
+  }
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const { id } = params;
+    const { searchParams } = new URL(req.url);
+    const deleteKeyParam = searchParams.get("delete") || req.headers.get("x-dev-key");
+    const configuredDevKey = process.env.DEV_DELETE_KEY || "devkey";
+
+    if (!deleteKeyParam || deleteKeyParam !== configuredDevKey) {
+      return NextResponse.json(
+        { error: "Chave dev inválida para exclusão." },
+        { status: 403 }
+      );
+    }
+
+    await deleteVideoSession(id);
+    return NextResponse.json({
+      success: true,
+      deleted: true,
+      message: "Vídeo deletado permanentemente do Cloudflare R2.",
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: "Falha ao deletar vídeo." }, { status: 500 });
   }
 }

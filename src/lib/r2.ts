@@ -1,4 +1,10 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const accountId = process.env.R2_ACCOUNT_ID || "";
@@ -49,7 +55,6 @@ export async function generateR2ViewUrl(
     throw new Error("Cloudflare R2 não está configurado nas variáveis de ambiente.");
   }
 
-  // Se houver um domínio público configurado
   const publicDomain = process.env.R2_PUBLIC_DOMAIN;
   if (publicDomain && publicDomain.startsWith("http")) {
     return `${publicDomain.replace(/\/$/, "")}/${fileKey}`;
@@ -100,5 +105,35 @@ export async function findR2VideoObject(id: string): Promise<{
   } catch (err) {
     console.error("Erro ao buscar objeto no R2:", err);
     return null;
+  }
+}
+
+export async function deleteR2VideoObjects(id: string): Promise<boolean> {
+  if (!isR2Configured()) return false;
+
+  try {
+    const client = getR2Client();
+    const listCommand = new ListObjectsV2Command({
+      Bucket: bucketName,
+      Prefix: `videos/${id}/`,
+    });
+
+    const response = await client.send(listCommand);
+    if (response.Contents && response.Contents.length > 0) {
+      for (const item of response.Contents) {
+        if (item.Key) {
+          await client.send(
+            new DeleteObjectCommand({
+              Bucket: bucketName,
+              Key: item.Key,
+            })
+          );
+        }
+      }
+    }
+    return true;
+  } catch (err) {
+    console.error("Erro ao deletar arquivo do Cloudflare R2:", err);
+    return false;
   }
 }
